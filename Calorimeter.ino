@@ -10,25 +10,20 @@ extern "C" {
 #include <OrbitOledGrph.h>
 }
 
-#define MODE_0		0
-#define MODE_1		2
-#define MODE_2		1
-#define MODE_3		3
+#define MODE_0 0
+#define MODE_1 2
+#define MODE_2 1
+#define MODE_3 3
 #define RED_LED   GPIO_PIN_1
 #define BLUE_LED  GPIO_PIN_2
 #define GREEN_LED GPIO_PIN_3
 
-
 extern int xchOledMax; // defined in OrbitOled.c
 extern int ychOledMax; // defined in OrbitOled.c
-
 
 char	chSwtCur;
 char	chSwtPrev;
 bool	fClearOled;
-
-
-
 
 void DeviceInit();
 char CheckSwitches();
@@ -56,21 +51,21 @@ void loop()
 
   switch(bDemoState) {
 
-  case MODE_0:
+  case MODE_0:   //step counter
     mode0();
     break;
-//  case MODE_1:
-//    mode1();
-//    break;
-//  case MODE_2:
-//    mode2();
-//    break;
-//  case MODE_3:
-//    mode3();
-//    break;
-//  default:
-//    mode0();
-//    break;
+  case MODE_1:
+    mode1();
+    break;
+  case MODE_2:
+    mode2();
+    break;
+  case MODE_3:
+    mode3();
+    break;
+  default:
+    mode0();
+    break;
   }
 
 }
@@ -139,15 +134,7 @@ void DeviceInit()
 
   GPIOPinTypeADC(AINPort, AIN);
 
-  /*
-   * Enable ADC with this Sequence
-   * 1. ADCSequenceConfigure()
-   * 2. ADCSequenceStepConfigure()
-   * 3. ADCSequenceEnable()
-   * 4. ADCProcessorTrigger();
-   * 5. Wait for sample sequence ADCIntStatus();
-   * 6. Read From ADC
-   */
+ 
   ADCSequenceConfigure(ADC0_BASE, 0, ADC_TRIGGER_PROCESSOR, 0);
   ADCSequenceStepConfigure(ADC0_BASE, 0, 0, ADC_CTL_IE | ADC_CTL_END | ADC_CTL_CH0);
   ADCSequenceEnable(ADC0_BASE, 0);
@@ -204,26 +191,84 @@ char CheckSwitches() {
 //Mode 0
 
 void mode0() {
-  short	dataX;
-  short dataY;
+  int inputed = 0;
+  int weight;
+uint32_t	ulAIN0;
+    long lBtn1;
+    long lBtn2;
+    char szAIN[6] = {0};
+    char cMSB = 0x00;
+    char cMIDB = 0x00;
+    char cLSB = 0x00;
+
+
+  while(CheckSwitches() == MODE_0) {
+      if(fClearOled == true) {
+        OrbitOledClear();
+        OrbitOledMoveTo(0,0);
+        OrbitOledSetCursor(0,0);
+        fClearOled = false;
+      }
+    
+    
+      ADCProcessorTrigger(ADC0_BASE, 0);
+    
+      while(!ADCIntStatus(ADC0_BASE, 0, false));
+    
+      ADCSequenceDataGet(ADC0_BASE, 0, &ulAIN0);
+    
+      cMSB = (0xF00 & ulAIN0) >> 8;
+      cMIDB = (0x0F0 & ulAIN0) >> 4;
+      //cLSB = (0x00F & ulAIN0);
+      
+    
+      weight=200*(cMSB*16*16+cMIDB*16)/(16*16*15+16*15);
+      char weightDisplay[10];
+OrbitOledSetCursor(0,0);
+OrbitOledPutString("    STEP mode");
+OrbitOledSetCursor(0,1);
+OrbitOledPutString("Input ur Weight"); 
+
+sprintf(weightDisplay,"%03d",weight);
+
+OrbitOledSetCursor(0,2);
+
+    
+    
+
+OrbitOledPutString(weightDisplay); 
+OrbitOledSetCursor(3,2);
+OrbitOledPutString("KG"); 
+OrbitOledSetCursor(0,3);
+OrbitOledPutString("            save");    
+      lBtn1 = GPIOPinRead(BTN1Port, BTN1);
+      if(lBtn1 == BTN1) {
+    OrbitOledClear();
+    OrbitOledSetCursor(11,4);
+    OrbitOledPutString("Reset");
+    OrbitOledMoveTo(0,0);
+    OrbitOledSetCursor(0,0);
+     break;
+      }        
+  }
+
   short dataZ;
+  short dataX;
+  short dataY;
   char printVal[10];
+  char printCal[10];
+  int count=0;
+  
 
   char 	chPwrCtlReg = 0x2D;
   char 	chX0Addr = 0x32;
-   char  chY0Addr = 0x34;
+  char  chY0Addr = 0x34;
   char  chZ0Addr = 0x36;
-    char 	rgchReadAccl[] = {
-    0, 0, 0            };
-  char 	rgchWriteAccl[] = {
-    0, 0            };
-     char rgchReadAccl2[] = {
-    0, 0, 0            };
-    
-    char rgchReadAccl3[] = {
-    0, 0, 0            };
-     char szDemo1[]	= {
-    'W','e','l','c','o','m','e' ,' ','2',' ','F','i','t','n','e','s','s'  };
+  char 	rgchReadAccl[] = {0, 0, 0};
+  char 	rgchWriteAccl[] = {0, 0, 0};
+  char  rgchReadAccl2[] = {0, 0, 0};
+  char rgchReadAccl3[] = {0, 0, 0};
+     
  /*
      * Enable I2C Peripheral
      */
@@ -262,7 +307,7 @@ void mode0() {
     OrbitOledSetCursor(0,0);
     fClearOled = false;
   }
-  
+   
     /* Initialize the Accelerometer
      *
      */
@@ -272,45 +317,281 @@ void mode0() {
     rgchWriteAccl[1] = 1 << 3;		// sets Accl in measurement mode
     I2CGenTransmit(rgchWriteAccl, 1, WRITE, ACCLADDR);
    
-   int initial =0;
    int next =0;
    int steps = -1;
+   int initial;
+   int flag = 0;
+
      while(CheckSwitches() == MODE_0) {
 
     /*
      * Read the X data register
      */
-    //rgchReadAccl[0] = chX0Addr;
-    //rgchReadAccl2[0] = chY0Addr;
+    rgchReadAccl[0] = chX0Addr;
+    rgchReadAccl2[0] = chY0Addr;
     rgchReadAccl3[0] = chZ0Addr;
     
-    //I2CGenTransmit(rgchReadAccl, 2, READ, ACCLADDR);
-   // I2CGenTransmit(rgchReadAccl2, 2, READ, ACCLADDR);
+    I2CGenTransmit(rgchReadAccl, 2, READ, ACCLADDR);
+    I2CGenTransmit(rgchReadAccl2, 2, READ, ACCLADDR);
     I2CGenTransmit(rgchReadAccl3, 2, READ, ACCLADDR);
     
-   // dataX = (rgchReadAccl[2] << 8) | rgchReadAccl[1];
-   // dataY = (rgchReadAccl2[2] << 8) | rgchReadAccl2[1];
+    dataX = (rgchReadAccl[2] << 8) | rgchReadAccl[1];
+    dataY = (rgchReadAccl2[2] << 8) | rgchReadAccl2[1];
     dataZ = (rgchReadAccl3[2] << 8) | rgchReadAccl3[1];
     
-    sprintf(printVal, "Z Accl is : %d  Steps is %d", (int)dataZ,steps);
+    if (dataZ>dataX&&dataZ>dataY) initial=285;
+    else if (dataX>dataY&&dataX>dataZ)initial =245;
+    else initial=265;
     
-    next = dataZ;
-    if(fabs(next - initial) >40) steps++;
+    double calorie = weight*0.57/2200*steps;
+    sprintf(printVal, "Steps is %02d",steps);
+    sprintf(printCal, "Calories burned: %.2g0",calorie);
     
-
-     OrbitOledSetCursor(0,0);
-
-     OrbitOledPutString(printVal);
-     
-     OrbitOledUpdate();
+    next = sqrt(dataX*dataX+dataY*dataY+dataZ*dataZ);
+    if(next - initial > 5 && flag==0) {
+     steps++;
+     flag=1;
      initial = next;
-     delay(300);
+    }
+    
+    if (next-initial<-5) flag=0;
+    
+    OrbitOledSetCursor(0,0);
+    OrbitOledPutString(printVal);
+    OrbitOledSetCursor(0,1);
+    OrbitOledPutString(printCal);
+    OrbitOledUpdate();
+//check if button is pressed
+     lBtn1 = GPIOPinRead(BTN1Port, BTN1);
+     if(lBtn1 == BTN1)
+	steps=0;
+
+     delay(100);
+     count++;
+     count =count%5;
+     if(count==5){
      printVal[10] = {0};
      OrbitOledClear();
-    
+     }
+     if (CheckSwitches()!= MODE_0) break;
   }
 
 }
+
+void mode1() {
+  int inputed = 0;
+  int weight;
+uint32_t	ulAIN0;
+    long lBtn1;
+    long lBtn2;
+    char szAIN[6] = {0};
+    char cMSB = 0x00;
+    char cMIDB = 0x00;
+    char cLSB = 0x00;
+
+
+  while(CheckSwitches() == MODE_1) {
+      if(fClearOled == true) {
+        OrbitOledClear();
+        OrbitOledMoveTo(0,0);
+        OrbitOledSetCursor(0,0);
+        fClearOled = false;
+      }
+    
+    
+      ADCProcessorTrigger(ADC0_BASE, 0);
+    
+      while(!ADCIntStatus(ADC0_BASE, 0, false));
+    
+      ADCSequenceDataGet(ADC0_BASE, 0, &ulAIN0);
+    
+      cMSB = (0xF00 & ulAIN0) >> 8;
+      cMIDB = (0x0F0 & ulAIN0) >> 4;
+      //cLSB = (0x00F & ulAIN0);
+      
+    
+      weight=200*(cMSB*16*16+cMIDB*16)/(16*16*15+16*15);
+      char weightDisplay[10];
+OrbitOledSetCursor(0,0);
+OrbitOledPutString("    STAIR mode");
+OrbitOledSetCursor(0,1);
+OrbitOledPutString("Input ur Weight"); 
+
+sprintf(weightDisplay,"%03d",weight);
+
+OrbitOledSetCursor(0,2);
+
+    
+    
+
+OrbitOledPutString(weightDisplay); 
+OrbitOledSetCursor(3,2);
+OrbitOledPutString("KG"); 
+OrbitOledSetCursor(0,3);
+OrbitOledPutString("            save");    
+      lBtn1 = GPIOPinRead(BTN1Port, BTN1);
+      if(lBtn1 == BTN1) {
+    OrbitOledClear();
+    OrbitOledSetCursor(11,4);
+    OrbitOledPutString("Reset");
+    OrbitOledMoveTo(0,0);
+    OrbitOledSetCursor(0,0);
+     break;
+      }        
+  }
+
+  short dataZ;
+  short dataX;
+  short dataY;
+  char printVal[10];
+  char printCal[10];
+  int count=0;
+  
+
+  char 	chPwrCtlReg = 0x2D;
+  char 	chX0Addr = 0x32;
+  char  chY0Addr = 0x34;
+  char  chZ0Addr = 0x36;
+  char 	rgchReadAccl[] = {0, 0, 0};
+  char 	rgchWriteAccl[] = {0, 0, 0};
+  char  rgchReadAccl2[] = {0, 0, 0};
+  char rgchReadAccl3[] = {0, 0, 0};
+     
+ /*
+     * Enable I2C Peripheral
+     */
+    SysCtlPeripheralEnable(SYSCTL_PERIPH_I2C0);
+    SysCtlPeripheralReset(SYSCTL_PERIPH_I2C0);
+
+    /*
+     * Set I2C GPIO pins
+     */
+    GPIOPinTypeI2C(I2CSDAPort, I2CSDA_PIN);
+    GPIOPinTypeI2CSCL(I2CSCLPort, I2CSCL_PIN);
+    GPIOPinConfigure(I2CSCL);
+    GPIOPinConfigure(I2CSDA);
+
+    /*
+     * Setup I2C
+     */
+    I2CMasterInitExpClk(I2C0_BASE, SysCtlClockGet(), false);
+
+    /* Initialize the Accelerometer
+     *
+     */
+    GPIOPinTypeGPIOInput(ACCL_INT2Port, ACCL_INT2);
+
+    rgchWriteAccl[0] = chPwrCtlReg;
+    rgchWriteAccl[1] = 1 << 3;		// sets Accl in measurement mode
+    I2CGenTransmit(rgchWriteAccl, 1, WRITE, ACCLADDR);
+
+  
+  /*
+   * If applicable, reset OLED
+   */
+  if(fClearOled == true) {
+    OrbitOledClear();
+    OrbitOledMoveTo(0,0);
+    OrbitOledSetCursor(0,0);
+    fClearOled = false;
+  }
+   
+    /* Initialize the Accelerometer
+     *
+     */
+    GPIOPinTypeGPIOInput(ACCL_INT2Port, ACCL_INT2);
+
+    rgchWriteAccl[0] = chPwrCtlReg;
+    rgchWriteAccl[1] = 1 << 3;		// sets Accl in measurement mode
+    I2CGenTransmit(rgchWriteAccl, 1, WRITE, ACCLADDR);
+   
+   int next =0;
+   int steps = -1;
+   int initial;
+   int flag = 0;
+
+     while(CheckSwitches() == MODE_1) {
+
+    /*
+     * Read the X data register
+     */
+    rgchReadAccl[0] = chX0Addr;
+    rgchReadAccl2[0] = chY0Addr;
+    rgchReadAccl3[0] = chZ0Addr;
+    
+    I2CGenTransmit(rgchReadAccl, 2, READ, ACCLADDR);
+    I2CGenTransmit(rgchReadAccl2, 2, READ, ACCLADDR);
+    I2CGenTransmit(rgchReadAccl3, 2, READ, ACCLADDR);
+    
+    dataX = (rgchReadAccl[2] << 8) | rgchReadAccl[1];
+    dataY = (rgchReadAccl2[2] << 8) | rgchReadAccl2[1];
+    dataZ = (rgchReadAccl3[2] << 8) | rgchReadAccl3[1];
+    
+    if (dataZ>dataX&&dataZ>dataY) initial=285;
+    else if (dataX>dataY&&dataX>dataZ)initial =245;
+    else initial=265;
+    
+    double calorie = weight*0.25*steps*0.000239006;
+    sprintf(printVal, "Stairs is %02d    Calories burned: %.2g0",steps,calorie);
+      
+    
+    
+    next = sqrt(dataX*dataX+dataY*dataY+dataZ*dataZ);
+    if(next - initial > 30 && flag==0) {
+     steps++;
+     flag=1;
+     initial = next;
+    }
+    
+    if (next-initial<-1) flag=0;
+    
+    OrbitOledSetCursor(0,0);
+    OrbitOledPutString(printVal);
+
+ 
+    OrbitOledUpdate();
+//check if button is pressed
+     lBtn1 = GPIOPinRead(BTN1Port, BTN1);
+     if(lBtn1 == BTN1)
+	steps=0;
+
+     delay(50);
+     count++;
+     count =count%7;
+     if(count==7){
+     printVal[10] = {0};
+     OrbitOledClear();
+     }
+     if (CheckSwitches()!= MODE_1) break;
+  }
+
+}
+
+void mode2() {
+   if(fClearOled == true) {
+    OrbitOledClear();
+    OrbitOledMoveTo(0,0);
+    OrbitOledSetCursor(0,0);
+    fClearOled = false;
+  }
+
+}
+
+void mode3() {
+   if(fClearOled == true) {
+    OrbitOledClear();
+    OrbitOledMoveTo(0,0);
+    OrbitOledSetCursor(0,0);
+    fClearOled = false;
+  }
+  OrbitOledPutString(" Calorie meter");
+  OrbitOledSetCursor(0,2);
+  OrbitOledPutString("Use switches to choose modes.");
+  delay(1000);
+  
+  fClearOled=true;
+}
+
 
 
 
@@ -479,3 +760,13 @@ bool I2CGenIsNotIdle() {
   return !I2CMasterBusBusy(I2C0_BASE);
 
 }
+
+
+
+
+
+
+
+
+
+
